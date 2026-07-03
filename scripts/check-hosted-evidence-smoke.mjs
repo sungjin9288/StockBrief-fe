@@ -6,6 +6,7 @@ const DEFAULT_HOSTED_URL = "https://main.d20hgo2k8atldu.amplifyapp.com";
 const DEFAULT_TICKER = "005930";
 const DEFAULT_SEARCH_QUERY = "005930";
 const DEFAULT_SEARCH_RESULT_NAME = "삼성전자";
+const DEFAULT_SEARCH_RESULT_TICKER = "005930";
 const DEFAULT_TIMEOUT_MS = 10000;
 
 export function parseArgs(argv = process.argv.slice(2), env = process.env) {
@@ -14,6 +15,7 @@ export function parseArgs(argv = process.argv.slice(2), env = process.env) {
     ticker: env.STOCKBRIEF_EVIDENCE_TICKER || DEFAULT_TICKER,
     searchQuery: env.STOCKBRIEF_SEARCH_QUERY || DEFAULT_SEARCH_QUERY,
     searchResultName: env.STOCKBRIEF_SEARCH_RESULT_NAME || DEFAULT_SEARCH_RESULT_NAME,
+    searchResultTicker: env.STOCKBRIEF_SEARCH_RESULT_TICKER || DEFAULT_SEARCH_RESULT_TICKER,
     timeoutMs: DEFAULT_TIMEOUT_MS,
   };
 
@@ -42,6 +44,11 @@ export function parseArgs(argv = process.argv.slice(2), env = process.env) {
       index += 1;
       continue;
     }
+    if (arg === "--search-result-ticker") {
+      options.searchResultTicker = requireValue(argv, index, arg);
+      index += 1;
+      continue;
+    }
     if (arg === "--timeout-ms") {
       const raw = requireValue(argv, index, arg);
       const timeoutMs = Number(raw);
@@ -67,6 +74,7 @@ export async function runSmoke({
   ticker = DEFAULT_TICKER,
   searchQuery = DEFAULT_SEARCH_QUERY,
   searchResultName = DEFAULT_SEARCH_RESULT_NAME,
+  searchResultTicker = DEFAULT_SEARCH_RESULT_TICKER,
   timeoutMs = DEFAULT_TIMEOUT_MS,
   fetcher = fetchPage,
 }) {
@@ -112,7 +120,8 @@ export async function runSmoke({
     path: searchPath,
     timeoutMs,
     fetcher,
-    inspect: (html) => inspectSearchPage(html, { query: searchQuery, resultName: searchResultName }),
+    inspect: (html) =>
+      inspectSearchPage(html, { resultName: searchResultName, resultTicker: searchResultTicker }),
   });
   checks[search.name] = search;
 
@@ -162,6 +171,7 @@ export async function runSmoke({
     hosted_url_configured: true,
     ticker,
     search_query: searchQuery,
+    search_result_ticker: searchResultTicker,
     checks,
     blockers,
   };
@@ -204,12 +214,15 @@ export function inspectStockDetailPage(html) {
   return summarizeInspection(checks);
 }
 
-export function inspectSearchPage(html, { query = DEFAULT_SEARCH_QUERY, resultName = DEFAULT_SEARCH_RESULT_NAME } = {}) {
+export function inspectSearchPage(
+  html,
+  { resultName = DEFAULT_SEARCH_RESULT_NAME, resultTicker = DEFAULT_SEARCH_RESULT_TICKER } = {},
+) {
   const checks = {
     hasSearchHeading: html.includes("종목 검색"),
     hasSearchCopy: html.includes("회사명이나 종목 코드로 찾기"),
     hasSearchResultName: html.includes(resultName),
-    hasSearchResultLink: html.includes(`/stocks/${query}`),
+    hasSearchResultLink: html.includes(`/stocks/${resultTicker}`),
   };
   return summarizeInspection(checks);
 }
@@ -308,6 +321,7 @@ Options:
   --ticker VALUE      Stock detail ticker to inspect. Defaults to STOCKBRIEF_EVIDENCE_TICKER or 005930.
   --search-query VALUE  Search query to inspect. Defaults to STOCKBRIEF_SEARCH_QUERY or 005930.
   --search-result-name VALUE  Expected search result name. Defaults to STOCKBRIEF_SEARCH_RESULT_NAME or 삼성전자.
+  --search-result-ticker VALUE  Expected search result detail ticker. Defaults to STOCKBRIEF_SEARCH_RESULT_TICKER or 005930.
   --timeout-ms VALUE  Request timeout in milliseconds. Default: ${DEFAULT_TIMEOUT_MS}.
 `);
 }

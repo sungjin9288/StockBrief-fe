@@ -85,17 +85,20 @@ describe("check-hosted-evidence-smoke", () => {
         "--ticker",
         "005930",
         "--search-query",
-        "005930",
+        "삼성전자",
         "--search-result-name",
         "삼성전자",
+        "--search-result-ticker",
+        "005930",
         "--timeout-ms",
         "5000",
       ]),
     ).toMatchObject({
       hostedUrl: "https://main.example.amplifyapp.com/",
       ticker: "005930",
-      searchQuery: "005930",
+      searchQuery: "삼성전자",
       searchResultName: "삼성전자",
+      searchResultTicker: "005930",
       timeoutMs: 5000,
     });
     expect(normalizeBaseUrl("https://main.example.amplifyapp.com/")).toBe(
@@ -300,6 +303,63 @@ describe("check-hosted-evidence-smoke", () => {
       },
     ]);
     expect(JSON.stringify(result)).not.toContain("회사명이나 종목 코드로 찾기</h1>");
+  });
+
+  it("uses the expected result ticker for company-name search result links", async () => {
+    const result = await runSmoke({
+      hostedUrl: "https://main.example.amplifyapp.com",
+      ticker: "005930",
+      searchQuery: "삼성전자",
+      searchResultName: "삼성전자",
+      searchResultTicker: "005930",
+      fetcher: async (url) => {
+        if (url.endsWith("/search?q=%EC%82%BC%EC%84%B1%EC%A0%84%EC%9E%90")) {
+          return {
+            statusCode: 200,
+            body: searchHtml,
+            errorCode: null,
+          };
+        }
+        if (url.endsWith("/watchlist")) {
+          return {
+            statusCode: 200,
+            body: watchlistHtml,
+            errorCode: null,
+          };
+        }
+        if (url.endsWith("/account")) {
+          return {
+            statusCode: 200,
+            body: accountHtml,
+            errorCode: null,
+          };
+        }
+        if (url.endsWith("/auth/callback")) {
+          return {
+            statusCode: 200,
+            body: authCallbackHtml,
+            errorCode: null,
+          };
+        }
+        return {
+          statusCode: 200,
+          body: url.endsWith("/stocks/005930") ? detailHtml : homeHtml,
+          errorCode: null,
+        };
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.search_query).toBe("삼성전자");
+    expect(result.search_result_ticker).toBe("005930");
+    expect(result.checks["hosted_page:/search"].target).toBe(
+      "/search?q=%EC%82%BC%EC%84%B1%EC%A0%84%EC%9E%90",
+    );
+    expect(result.checks["hosted_page:/search"].summary).toMatchObject({
+      hasSearchResultName: true,
+      hasSearchResultLink: true,
+      missing: [],
+    });
   });
 
   it("reports missing account and auth callback markers as redacted blockers", async () => {

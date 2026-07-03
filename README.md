@@ -84,7 +84,11 @@ localStorage payload, token, auth code는 출력하지 않는다.
 
 ```bash
 STOCKBRIEF_HOSTED_URL="https://main.d20hgo2k8atldu.amplifyapp.com" \
-pnpm run smoke:hosted-evidence -- --ticker 005930
+pnpm run smoke:hosted-evidence -- \
+  --ticker 005930 \
+  --search-query 삼성전자 \
+  --search-result-name 삼성전자 \
+  --search-result-ticker 005930
 ```
 
 ## 브랜치 정책
