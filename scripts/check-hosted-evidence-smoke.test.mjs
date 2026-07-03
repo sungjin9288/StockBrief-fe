@@ -4,6 +4,7 @@ import {
   inspectHomePage,
   inspectAccountPage,
   inspectAuthCallbackPage,
+  inspectSearchPage,
   inspectStockDetailPage,
   inspectWatchlistPage,
   normalizeBaseUrl,
@@ -30,6 +31,16 @@ const detailHtml = `
       <a href="https://provider.example/news/private-body">원문 보기</a>
       <p>provider raw title should not be printed</p>
     </section>
+  </main>
+`;
+
+const searchHtml = `
+  <main>
+    <p>종목 검색</p>
+    <h1>회사명이나 종목 코드로 찾기</h1>
+    <a href="/stocks/005930">삼성전자</a>
+    <span>005930</span>
+    <p>private search payload should not be printed</p>
   </main>
 `;
 
@@ -73,12 +84,18 @@ describe("check-hosted-evidence-smoke", () => {
         "https://main.example.amplifyapp.com/",
         "--ticker",
         "005930",
+        "--search-query",
+        "005930",
+        "--search-result-name",
+        "삼성전자",
         "--timeout-ms",
         "5000",
       ]),
     ).toMatchObject({
       hostedUrl: "https://main.example.amplifyapp.com/",
       ticker: "005930",
+      searchQuery: "005930",
+      searchResultName: "삼성전자",
       timeoutMs: 5000,
     });
     expect(normalizeBaseUrl("https://main.example.amplifyapp.com/")).toBe(
@@ -107,6 +124,13 @@ describe("check-hosted-evidence-smoke", () => {
             errorCode: null,
           };
         }
+        if (url.endsWith("/search?q=005930")) {
+          return {
+            statusCode: 200,
+            body: searchHtml,
+            errorCode: null,
+          };
+        }
         if (url.endsWith("/watchlist")) {
           return {
             statusCode: 200,
@@ -127,6 +151,7 @@ describe("check-hosted-evidence-smoke", () => {
     expect(calls).toEqual([
       "https://main.example.amplifyapp.com/",
       "https://main.example.amplifyapp.com/stocks/005930",
+      "https://main.example.amplifyapp.com/search?q=005930",
       "https://main.example.amplifyapp.com/watchlist",
       "https://main.example.amplifyapp.com/account",
       "https://main.example.amplifyapp.com/auth/callback",
@@ -136,6 +161,13 @@ describe("check-hosted-evidence-smoke", () => {
       hasEvidenceId: true,
       hasPublishedDate: true,
       hasSourceReference: true,
+      missing: [],
+    });
+    expect(result.checks["hosted_page:/search"].summary).toMatchObject({
+      hasSearchHeading: true,
+      hasSearchCopy: true,
+      hasSearchResultName: true,
+      hasSearchResultLink: true,
       missing: [],
     });
     expect(result.checks["hosted_page:/watchlist"].summary).toMatchObject({
@@ -157,6 +189,7 @@ describe("check-hosted-evidence-smoke", () => {
     });
     expect(serialized).not.toContain("provider raw title");
     expect(serialized).not.toContain("provider.example");
+    expect(serialized).not.toContain("private search payload");
     expect(serialized).not.toContain("private localStorage payload");
     expect(serialized).not.toContain("private account payload");
     expect(serialized).not.toContain("auth code");
@@ -178,6 +211,13 @@ describe("check-hosted-evidence-smoke", () => {
           return {
             statusCode: 200,
             body: authCallbackHtml,
+            errorCode: null,
+          };
+        }
+        if (url.endsWith("/search?q=005930")) {
+          return {
+            statusCode: 200,
+            body: searchHtml,
             errorCode: null,
           };
         }
@@ -209,6 +249,59 @@ describe("check-hosted-evidence-smoke", () => {
     ]);
   });
 
+  it("reports missing search result markers as redacted blockers", async () => {
+    const result = await runSmoke({
+      hostedUrl: "https://main.example.amplifyapp.com",
+      ticker: "005930",
+      fetcher: async (url) => {
+        if (url.endsWith("/search?q=005930")) {
+          return {
+            statusCode: 200,
+            body: "<main><p>종목 검색</p><h1>회사명이나 종목 코드로 찾기</h1></main>",
+            errorCode: null,
+          };
+        }
+        if (url.endsWith("/watchlist")) {
+          return {
+            statusCode: 200,
+            body: watchlistHtml,
+            errorCode: null,
+          };
+        }
+        if (url.endsWith("/account")) {
+          return {
+            statusCode: 200,
+            body: accountHtml,
+            errorCode: null,
+          };
+        }
+        if (url.endsWith("/auth/callback")) {
+          return {
+            statusCode: 200,
+            body: authCallbackHtml,
+            errorCode: null,
+          };
+        }
+        return {
+          statusCode: 200,
+          body: url.endsWith("/stocks/005930") ? detailHtml : homeHtml,
+          errorCode: null,
+        };
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.blockers).toEqual([
+      {
+        check: "hosted_page:/search",
+        status_code: 200,
+        missing: ["hasSearchResultName", "hasSearchResultLink"],
+        error_code: "check_failed",
+      },
+    ]);
+    expect(JSON.stringify(result)).not.toContain("회사명이나 종목 코드로 찾기</h1>");
+  });
+
   it("reports missing account and auth callback markers as redacted blockers", async () => {
     const result = await runSmoke({
       hostedUrl: "https://main.example.amplifyapp.com",
@@ -232,6 +325,13 @@ describe("check-hosted-evidence-smoke", () => {
           return {
             statusCode: 200,
             body: "<main><h1>로그인 처리</h1></main>",
+            errorCode: null,
+          };
+        }
+        if (url.endsWith("/search?q=005930")) {
+          return {
+            statusCode: 200,
+            body: searchHtml,
             errorCode: null,
           };
         }
@@ -264,12 +364,18 @@ describe("check-hosted-evidence-smoke", () => {
   it("keeps page inspection rules small and explicit", () => {
     expect(inspectHomePage(homeHtml).passed).toBe(true);
     expect(inspectStockDetailPage(detailHtml).passed).toBe(true);
+    expect(inspectSearchPage(searchHtml).passed).toBe(true);
     expect(inspectWatchlistPage(watchlistHtml).passed).toBe(true);
     expect(inspectAccountPage(accountHtml).passed).toBe(true);
     expect(inspectAuthCallbackPage(authCallbackHtml).passed).toBe(true);
     expect(inspectStockDetailPage("<main>공시·뉴스·재무·가격 근거</main>").summary.missing).toContain(
       "hasEvidenceId",
     );
+    expect(inspectSearchPage("<main>종목 검색</main>").summary.missing).toEqual([
+      "hasSearchCopy",
+      "hasSearchResultName",
+      "hasSearchResultLink",
+    ]);
     expect(inspectWatchlistPage("<main>저장한 검토 후보</main>").summary.missing).toEqual([
       "hasGuestStorageCopy",
     ]);

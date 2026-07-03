@@ -4,12 +4,16 @@ import { fileURLToPath } from "node:url";
 
 const DEFAULT_HOSTED_URL = "https://main.d20hgo2k8atldu.amplifyapp.com";
 const DEFAULT_TICKER = "005930";
+const DEFAULT_SEARCH_QUERY = "005930";
+const DEFAULT_SEARCH_RESULT_NAME = "삼성전자";
 const DEFAULT_TIMEOUT_MS = 10000;
 
 export function parseArgs(argv = process.argv.slice(2), env = process.env) {
   const options = {
     hostedUrl: env.STOCKBRIEF_HOSTED_URL || DEFAULT_HOSTED_URL,
     ticker: env.STOCKBRIEF_EVIDENCE_TICKER || DEFAULT_TICKER,
+    searchQuery: env.STOCKBRIEF_SEARCH_QUERY || DEFAULT_SEARCH_QUERY,
+    searchResultName: env.STOCKBRIEF_SEARCH_RESULT_NAME || DEFAULT_SEARCH_RESULT_NAME,
     timeoutMs: DEFAULT_TIMEOUT_MS,
   };
 
@@ -25,6 +29,16 @@ export function parseArgs(argv = process.argv.slice(2), env = process.env) {
     }
     if (arg === "--ticker") {
       options.ticker = requireValue(argv, index, arg);
+      index += 1;
+      continue;
+    }
+    if (arg === "--search-query") {
+      options.searchQuery = requireValue(argv, index, arg);
+      index += 1;
+      continue;
+    }
+    if (arg === "--search-result-name") {
+      options.searchResultName = requireValue(argv, index, arg);
       index += 1;
       continue;
     }
@@ -51,6 +65,8 @@ export function parseArgs(argv = process.argv.slice(2), env = process.env) {
 export async function runSmoke({
   hostedUrl,
   ticker = DEFAULT_TICKER,
+  searchQuery = DEFAULT_SEARCH_QUERY,
+  searchResultName = DEFAULT_SEARCH_RESULT_NAME,
   timeoutMs = DEFAULT_TIMEOUT_MS,
   fetcher = fetchPage,
 }) {
@@ -88,6 +104,17 @@ export async function runSmoke({
     inspect: inspectStockDetailPage,
   });
   checks[detail.name] = detail;
+
+  const searchPath = `/search?q=${encodeURIComponent(searchQuery)}`;
+  const search = await checkPage({
+    name: "hosted_page:/search",
+    baseUrl,
+    path: searchPath,
+    timeoutMs,
+    fetcher,
+    inspect: (html) => inspectSearchPage(html, { query: searchQuery, resultName: searchResultName }),
+  });
+  checks[search.name] = search;
 
   const watchlist = await checkPage({
     name: "hosted_page:/watchlist",
@@ -134,6 +161,7 @@ export async function runSmoke({
     ok: Object.values(checks).every((check) => check.ok),
     hosted_url_configured: true,
     ticker,
+    search_query: searchQuery,
     checks,
     blockers,
   };
@@ -172,6 +200,16 @@ export function inspectStockDetailPage(html) {
     hasEvidenceId: html.includes("근거 ID:"),
     hasPublishedDate: html.includes("발행일:"),
     hasSourceReference: html.includes("원문 보기") || html.includes("출처 ID:"),
+  };
+  return summarizeInspection(checks);
+}
+
+export function inspectSearchPage(html, { query = DEFAULT_SEARCH_QUERY, resultName = DEFAULT_SEARCH_RESULT_NAME } = {}) {
+  const checks = {
+    hasSearchHeading: html.includes("종목 검색"),
+    hasSearchCopy: html.includes("회사명이나 종목 코드로 찾기"),
+    hasSearchResultName: html.includes(resultName),
+    hasSearchResultLink: html.includes(`/stocks/${query}`),
   };
   return summarizeInspection(checks);
 }
@@ -268,6 +306,8 @@ function printUsage() {
 Options:
   --hosted-url VALUE  Hosted FE base URL. Defaults to STOCKBRIEF_HOSTED_URL or dev Amplify URL.
   --ticker VALUE      Stock detail ticker to inspect. Defaults to STOCKBRIEF_EVIDENCE_TICKER or 005930.
+  --search-query VALUE  Search query to inspect. Defaults to STOCKBRIEF_SEARCH_QUERY or 005930.
+  --search-result-name VALUE  Expected search result name. Defaults to STOCKBRIEF_SEARCH_RESULT_NAME or 삼성전자.
   --timeout-ms VALUE  Request timeout in milliseconds. Default: ${DEFAULT_TIMEOUT_MS}.
 `);
 }
