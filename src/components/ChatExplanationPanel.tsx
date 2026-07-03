@@ -49,6 +49,8 @@ export function ChatExplanationPanel({ ticker, initialSessionId = null }: ChatEx
   const [accessToken, setAccessToken] = useState<string | null>(() => readApiAuthToken());
   const [sessionId, setSessionId] = useState<string | null>(initialSessionId);
   const resumeSessionId = accessToken ? sessionId : null;
+  const trimmedMessage = message.trim();
+  const canRequestExplanation = trimmedMessage.length > 0 && !loading;
 
   useEffect(() => {
     const sync = () => setAccessToken(readApiAuthToken());
@@ -56,12 +58,13 @@ export function ChatExplanationPanel({ ticker, initialSessionId = null }: ChatEx
   }, []);
 
   async function requestExplanation() {
+    if (!trimmedMessage) return;
     setLoading(true);
     setError(null);
     try {
       const body = {
         ticker,
-        message,
+        message: trimmedMessage,
         ...(resumeSessionId ? { session_id: resumeSessionId } : {}),
         title: `${ticker} 추천 이유 설명`,
       };
@@ -101,7 +104,7 @@ export function ChatExplanationPanel({ ticker, initialSessionId = null }: ChatEx
         <button
           type="button"
           onClick={requestExplanation}
-          disabled={loading}
+          disabled={!canRequestExplanation}
           className="shrink-0 rounded-md bg-ink px-4 py-2 text-sm font-semibold text-white transition hover:bg-accent focus:outline-none focus:shadow-focus disabled:cursor-not-allowed disabled:opacity-60"
         >
           {loading ? "설명 생성 중" : DEFAULT_MESSAGE}
@@ -121,6 +124,9 @@ export function ChatExplanationPanel({ ticker, initialSessionId = null }: ChatEx
           className="mt-1 w-full resize-none rounded-md border border-line bg-field px-3 py-2 text-sm text-ink outline-none transition focus:bg-white focus:shadow-focus"
         />
       </label>
+      {!trimmedMessage ? (
+        <p className="mt-2 text-xs text-caution">질문을 입력하면 설명을 요청할 수 있습니다.</p>
+      ) : null}
 
       {error ? <p className="mt-4 text-sm text-caution">{error}</p> : null}
 
