@@ -137,8 +137,8 @@ describe("AuthCallbackClient", () => {
     expect(
       await screen.findByText(/로그인은 완료되었지만 로컬 관심종목을 서버에 병합하지 못했습니다/),
     ).not.toBeNull();
-    expect(screen.getByRole("link", { name: "계정으로 이동" }).getAttribute("href")).toBe(
-      "/account",
+    expect(screen.getByRole("link", { name: "관심종목으로 이동" }).getAttribute("href")).toBe(
+      "/watchlist",
     );
     expect(consoleError).toHaveBeenCalledWith("Auth callback flow failed.", {
       stage: "watchlist_import",

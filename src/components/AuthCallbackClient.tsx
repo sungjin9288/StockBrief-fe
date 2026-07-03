@@ -135,10 +135,10 @@ export function AuthCallbackClient({
               관심종목 화면에서 다시 동기화할 수 있습니다.
             </p>
             <Link
-              href="/account"
+              href="/watchlist"
               className="mt-5 inline-flex rounded-md border border-line bg-white px-4 py-2 text-sm font-semibold text-ink transition hover:border-accent hover:text-accent focus:outline-none focus:shadow-focus"
             >
-              계정으로 이동
+              관심종목으로 이동
             </Link>
           </>
         ) : null}
