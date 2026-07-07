@@ -6,12 +6,13 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { deleteServerWatchlistItem, getMe, patchServerWatchlistItem } from "@/lib/api";
 import { readApiAuthToken, subscribeAuthSession } from "@/lib/cognito-auth";
 import {
+  ensureWatchlistCacheAuthSync,
   importLocalWatchlistOnce,
   readServerWatchlistSnapshot,
   refreshServerWatchlistSnapshot,
   subscribeServerWatchlistSnapshot,
   updateServerWatchlistSnapshot,
-} from "@/lib/server-watchlist-store";
+} from "@/lib/client-watchlist-cache";
 import {
   readWatchlist,
   removeWatchlistItem,
@@ -47,6 +48,7 @@ export function WatchlistClient() {
   }, []);
 
   useEffect(() => {
+    ensureWatchlistCacheAuthSync();
     const sync = () => setAccessToken(readApiAuthToken());
     sync();
     return subscribeAuthSession(sync);

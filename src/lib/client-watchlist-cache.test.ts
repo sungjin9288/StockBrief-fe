@@ -1,22 +1,36 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getServerWatchlist, importServerWatchlist } from "@/lib/api";
+import { readApiAuthToken, subscribeAuthSession } from "@/lib/cognito-auth";
 import { WATCHLIST_STORAGE_KEY } from "@/lib/watchlist-storage";
 import type { MeResponse, ServerWatchlistItem, ServerWatchlistResponse } from "@/types/api";
 
 import {
   WATCHLIST_SYNC_STATE_KEY,
   clearServerWatchlistSnapshot,
+  ensureWatchlistCacheAuthSync,
   importLocalWatchlistOnce,
-} from "./server-watchlist-store";
+  readServerWatchlistSnapshot,
+  refreshServerWatchlistSnapshot,
+  setServerWatchlistSnapshot,
+  stopWatchlistCacheAuthSync,
+  updateServerWatchlistSnapshot,
+} from "./client-watchlist-cache";
 
 vi.mock("@/lib/api", () => ({
   getServerWatchlist: vi.fn(),
   importServerWatchlist: vi.fn(),
 }));
 
+vi.mock("@/lib/cognito-auth", () => ({
+  readApiAuthToken: vi.fn(),
+  subscribeAuthSession: vi.fn(),
+}));
+
 const mockedGetServerWatchlist = vi.mocked(getServerWatchlist);
 const mockedImportServerWatchlist = vi.mocked(importServerWatchlist);
+const mockedReadApiAuthToken = vi.mocked(readApiAuthToken);
+const mockedSubscribeAuthSession = vi.mocked(subscribeAuthSession);
 
 describe("importLocalWatchlistOnce", () => {
   beforeEach(() => {
@@ -102,6 +116,115 @@ describe("importLocalWatchlistOnce", () => {
     ]);
   });
 });
+
+describe("watchlist cache auth sync", () => {
+  const authSessionCallbacks: Array<() => void> = [];
+
+  beforeEach(() => {
+    clearServerWatchlistSnapshot();
+    authSessionCallbacks.length = 0;
+    mockedSubscribeAuthSession.mockImplementation((callback) => {
+      authSessionCallbacks.push(callback);
+      return () => undefined;
+    });
+    mockedReadApiAuthToken.mockReturnValue("token-1");
+  });
+
+  afterEach(() => {
+    stopWatchlistCacheAuthSync();
+    clearServerWatchlistSnapshot();
+    vi.clearAllMocks();
+  });
+
+  it("clears the cached snapshot when the auth session token changes", () => {
+    ensureWatchlistCacheAuthSync();
+    setServerWatchlistSnapshot("token-1", watchlistResponse([serverItem("005930")]));
+    expect(readServerWatchlistSnapshot("token-1")?.count).toBe(1);
+
+    mockedReadApiAuthToken.mockReturnValue("token-2");
+    authSessionCallbacks.forEach((callback) => callback());
+
+    expect(readServerWatchlistSnapshot("token-1")).toBeNull();
+    expect(readServerWatchlistSnapshot("token-2")).toBeNull();
+  });
+
+  it("keeps the cached snapshot when an auth event fires without a token change", () => {
+    ensureWatchlistCacheAuthSync();
+    setServerWatchlistSnapshot("token-1", watchlistResponse([serverItem("005930")]));
+
+    authSessionCallbacks.forEach((callback) => callback());
+
+    expect(readServerWatchlistSnapshot("token-1")?.count).toBe(1);
+  });
+
+  it("subscribes to auth session changes only once", () => {
+    ensureWatchlistCacheAuthSync();
+    ensureWatchlistCacheAuthSync();
+
+    expect(mockedSubscribeAuthSession).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("snapshot refresh version guard", () => {
+  beforeEach(() => {
+    clearServerWatchlistSnapshot();
+  });
+
+  afterEach(() => {
+    clearServerWatchlistSnapshot();
+    vi.clearAllMocks();
+  });
+
+  it("does not overwrite a newer optimistic update with a stale refresh response", async () => {
+    setServerWatchlistSnapshot("token-1", watchlistResponse([serverItem("005930")]));
+    const staleRefresh = deferred<ServerWatchlistResponse>();
+    mockedGetServerWatchlist.mockReturnValue(staleRefresh.promise);
+
+    const refresh = refreshServerWatchlistSnapshot("token-1");
+    updateServerWatchlistSnapshot("token-1", () =>
+      watchlistResponse([serverItem("005930"), serverItem("000660")]),
+    );
+
+    staleRefresh.resolve(watchlistResponse([serverItem("005930")]));
+    await refresh;
+
+    expect(readServerWatchlistSnapshot("token-1")?.items.map((item) => item.ticker)).toEqual([
+      "005930",
+      "000660",
+    ]);
+  });
+
+  it("applies a refresh response when no newer write happened while it was in flight", async () => {
+    mockedGetServerWatchlist.mockResolvedValue(watchlistResponse([serverItem("005930")]));
+
+    await refreshServerWatchlistSnapshot("token-1");
+
+    expect(readServerWatchlistSnapshot("token-1")?.count).toBe(1);
+  });
+
+  it("does not repopulate the cache when it was cleared while a refresh was in flight", async () => {
+    const staleRefresh = deferred<ServerWatchlistResponse>();
+    mockedGetServerWatchlist.mockReturnValue(staleRefresh.promise);
+
+    const refresh = refreshServerWatchlistSnapshot("token-1");
+    clearServerWatchlistSnapshot();
+
+    staleRefresh.resolve(watchlistResponse([serverItem("005930")]));
+    await refresh;
+
+    expect(readServerWatchlistSnapshot("token-1")).toBeNull();
+  });
+});
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((innerResolve, innerReject) => {
+    resolve = innerResolve;
+    reject = innerReject;
+  });
+  return { promise, resolve, reject };
+}
 
 function me(cognitoSub: string): MeResponse {
   return {

@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getMe, getUserPreferences } from "@/lib/api";
 import { completeCognitoCallback, readApiAuthToken } from "@/lib/cognito-auth";
-import { importLocalWatchlistOnce } from "@/lib/server-watchlist-store";
+import { importLocalWatchlistOnce } from "@/lib/client-watchlist-cache";
 import type { MeResponse } from "@/types/api";
 
 import { AuthCallbackClient } from "./AuthCallbackClient";
@@ -35,7 +35,7 @@ vi.mock("@/lib/cognito-auth", () => ({
   readApiAuthToken: vi.fn(),
 }));
 
-vi.mock("@/lib/server-watchlist-store", () => ({
+vi.mock("@/lib/client-watchlist-cache", () => ({
   importLocalWatchlistOnce: vi.fn(),
 }));
 

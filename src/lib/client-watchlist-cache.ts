@@ -1,6 +1,7 @@
 "use client";
 
 import { getServerWatchlist, importServerWatchlist } from "@/lib/api";
+import { readApiAuthToken, subscribeAuthSession } from "@/lib/cognito-auth";
 import { readWatchlist } from "@/lib/watchlist-storage";
 import type { MeResponse, ServerWatchlistItem, ServerWatchlistResponse } from "@/types/api";
 import type { WatchlistInput, WatchlistItem } from "@/types/watchlist";
@@ -9,6 +10,11 @@ let cachedToken: string | null = null;
 let cachedResponse: ServerWatchlistResponse | null = null;
 let pendingToken: string | null = null;
 let pendingRequest: Promise<ServerWatchlistResponse> | null = null;
+// Monotonic write version: every cache write (set/update/clear) bumps it so an
+// in-flight refresh can detect that a newer write landed and must not be overwritten.
+let snapshotWriteVersion = 0;
+let authSyncUnsubscribe: (() => void) | null = null;
+let authSyncToken: string | null = null;
 
 const listeners = new Set<() => void>();
 
@@ -46,23 +52,14 @@ export function getServerWatchlistSnapshot(
   if (pendingToken === accessToken && pendingRequest) {
     return pendingRequest;
   }
-  pendingToken = accessToken;
-  pendingRequest = getServerWatchlist(accessToken)
-    .then((response) => {
-      setServerWatchlistSnapshot(accessToken, response);
-      return response;
-    })
-    .finally(() => {
-      pendingToken = null;
-      pendingRequest = null;
-    });
-  return pendingRequest;
+  return startServerWatchlistFetch(accessToken);
 }
 
 export function setServerWatchlistSnapshot(
   accessToken: string,
   response: ServerWatchlistResponse,
 ): void {
+  snapshotWriteVersion += 1;
   cachedToken = accessToken;
   cachedResponse = response;
   emit();
@@ -79,6 +76,7 @@ export function updateServerWatchlistSnapshot(
 }
 
 export function clearServerWatchlistSnapshot(): void {
+  snapshotWriteVersion += 1;
   cachedToken = null;
   cachedResponse = null;
   pendingToken = null;
@@ -92,10 +90,19 @@ export async function refreshServerWatchlistSnapshot(
   if (pendingToken === accessToken && pendingRequest) {
     return pendingRequest;
   }
+  return startServerWatchlistFetch(accessToken);
+}
+
+function startServerWatchlistFetch(accessToken: string): Promise<ServerWatchlistResponse> {
+  const versionAtStart = snapshotWriteVersion;
   pendingToken = accessToken;
   pendingRequest = getServerWatchlist(accessToken)
     .then((response) => {
-      setServerWatchlistSnapshot(accessToken, response);
+      // Apply only when no newer write (optimistic update, clear, other fetch)
+      // happened while this request was in flight.
+      if (snapshotWriteVersion === versionAtStart) {
+        setServerWatchlistSnapshot(accessToken, response);
+      }
       return response;
     })
     .finally(() => {
@@ -103,6 +110,32 @@ export async function refreshServerWatchlistSnapshot(
       pendingRequest = null;
     });
   return pendingRequest;
+}
+
+/**
+ * Subscribes the cache to auth session changes so a login/logout/token rotation
+ * clears cached data from the previous session. Idempotent; call it from any
+ * consumer that reads the cache.
+ */
+export function ensureWatchlistCacheAuthSync(): void {
+  if (authSyncUnsubscribe || typeof window === "undefined") {
+    return;
+  }
+  authSyncToken = readApiAuthToken();
+  authSyncUnsubscribe = subscribeAuthSession(() => {
+    const nextToken = readApiAuthToken();
+    if (nextToken === authSyncToken) {
+      return;
+    }
+    authSyncToken = nextToken;
+    clearServerWatchlistSnapshot();
+  });
+}
+
+export function stopWatchlistCacheAuthSync(): void {
+  authSyncUnsubscribe?.();
+  authSyncUnsubscribe = null;
+  authSyncToken = null;
 }
 
 export function isTickerInServerWatchlist(ticker: string): boolean {

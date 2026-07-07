@@ -6,7 +6,7 @@ import {
   clearServerWatchlistSnapshot,
   readServerWatchlistSnapshot,
   setServerWatchlistSnapshot,
-} from "@/lib/server-watchlist-store";
+} from "@/lib/client-watchlist-cache";
 import type { ServerWatchlistItem, ServerWatchlistResponse } from "@/types/api";
 import type { WatchlistInput } from "@/types/watchlist";
 

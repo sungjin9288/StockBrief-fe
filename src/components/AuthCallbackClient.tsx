@@ -7,7 +7,7 @@ import { getMe, getUserPreferences } from "@/lib/api";
 import { logClientError } from "@/lib/client-telemetry";
 import type { ClientTelemetryStage } from "@/lib/client-telemetry";
 import { completeCognitoCallback, readApiAuthToken } from "@/lib/cognito-auth";
-import { importLocalWatchlistOnce } from "@/lib/server-watchlist-store";
+import { importLocalWatchlistOnce } from "@/lib/client-watchlist-cache";
 import { formatWatchlistSyncMessage } from "@/lib/watchlist-sync-message";
 import type { WatchlistSyncMessageInput } from "@/lib/watchlist-sync-message";
 import { clearRiskProfileCookie, setRiskProfileCookie } from "@/lib/preference-cookie";

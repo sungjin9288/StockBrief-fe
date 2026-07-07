@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getMe } from "@/lib/api";
 import { readApiAuthToken } from "@/lib/cognito-auth";
-import { importLocalWatchlistOnce } from "@/lib/server-watchlist-store";
+import { importLocalWatchlistOnce } from "@/lib/client-watchlist-cache";
 import { readWatchlist } from "@/lib/watchlist-storage";
 
 import { WatchlistClient } from "./WatchlistClient";
@@ -38,7 +38,8 @@ vi.mock("@/lib/cognito-auth", () => ({
   subscribeAuthSession: vi.fn(() => () => undefined),
 }));
 
-vi.mock("@/lib/server-watchlist-store", () => ({
+vi.mock("@/lib/client-watchlist-cache", () => ({
+  ensureWatchlistCacheAuthSync: vi.fn(),
   importLocalWatchlistOnce: vi.fn(),
   readServerWatchlistSnapshot: vi.fn(() => emptyServerWatchlist),
   refreshServerWatchlistSnapshot: vi.fn(),

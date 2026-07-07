@@ -5,12 +5,13 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { addServerWatchlistItem, deleteServerWatchlistItem } from "@/lib/api";
 import { readApiAuthToken, readAuthSession, subscribeAuthSession } from "@/lib/cognito-auth";
 import {
+  ensureWatchlistCacheAuthSync,
   getServerWatchlistSnapshot,
   readServerWatchlistSnapshot,
   refreshServerWatchlistSnapshot,
   subscribeServerWatchlistSnapshot,
   updateServerWatchlistSnapshot,
-} from "@/lib/server-watchlist-store";
+} from "@/lib/client-watchlist-cache";
 import {
   isTickerSaved,
   removeWatchlistItem,
@@ -66,6 +67,7 @@ export function WatchlistToggle({
   }, [item.ticker]);
 
   useEffect(() => {
+    ensureWatchlistCacheAuthSync();
     const sync = () => {
       const nextAccessToken = readApiAuthToken();
       setAuthState((current) =>
