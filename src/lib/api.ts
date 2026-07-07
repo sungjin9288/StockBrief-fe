@@ -28,6 +28,8 @@ const DEFAULT_API_BASE_URL = "http://localhost:8000/v1";
 const DEFAULT_CHAT_SAFETY_DISCLAIMER =
   "공개 데이터 기반 설명이며 투자 조언이 아닙니다. 원문 확인이 필요합니다.";
 
+export const AUTH_SESSION_EXPIRED_MESSAGE = "로그인이 만료되었습니다. 다시 로그인해 주세요.";
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -68,13 +70,29 @@ async function authorizedRequest<T>(
   accessToken: string,
   init?: RequestInit,
 ): Promise<T> {
-  return request<T>(path, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      ...init?.headers,
-    },
-  });
+  try {
+    return await request<T>(path, {
+      ...init,
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        ...init?.headers,
+      },
+    });
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 401) {
+      await clearExpiredAuthSession();
+      throw new ApiError(AUTH_SESSION_EXPIRED_MESSAGE, 401);
+    }
+    throw error;
+  }
+}
+
+// Dynamic import keeps the client-only cognito-auth module out of the server
+// bundle graph; public api helpers in this file are also used by server pages.
+async function clearExpiredAuthSession(): Promise<void> {
+  if (typeof window === "undefined") return;
+  const { clearAuthSession } = await import("@/lib/cognito-auth");
+  clearAuthSession();
 }
 
 export interface CandidateQuery {

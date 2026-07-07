@@ -1,16 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 
-import {
-  getMe,
-  getUserChatSessionDetail,
-  getUserChatSessions,
-  getUserPreferences,
-  patchMe,
-  putUserPreferences,
-} from "@/lib/api";
 import {
   clearAuthSession,
   isCognitoConfigured,
@@ -20,196 +12,52 @@ import {
 } from "@/lib/cognito-auth";
 import { storeChatResumeSession } from "@/lib/chat-resume";
 import { riskProfileLabel } from "@/lib/format";
-import { setRiskProfileCookie } from "@/lib/preference-cookie";
-import type {
-  MeResponse,
-  RiskProfile,
-  UserChatMessage,
-  UserChatSession,
-  UserChatSessionDetailResponse,
-} from "@/types/api";
-
-type NotificationDigest = "off" | "daily" | "weekly";
+import {
+  readNotificationDigest,
+  readRiskProfile,
+  useAccountProfile,
+} from "@/lib/hooks/useAccountProfile";
+import { useChatSessionHistory } from "@/lib/hooks/useChatSessionHistory";
+import type { UserChatMessage, UserChatSession } from "@/types/api";
 
 export function AccountClient() {
-  const [accessToken, setAccessToken] = useState<string | null>(() => readApiAuthToken());
-  const [me, setMe] = useState<MeResponse | null>(null);
-  const [nickname, setNickname] = useState("");
-  const [riskProfile, setRiskProfile] = useState<RiskProfile>("balanced");
-  const [userPreferences, setUserPreferences] = useState<Record<string, unknown>>({});
-  const [notificationEmailEnabled, setNotificationEmailEnabled] = useState(false);
-  const [notificationDigest, setNotificationDigest] = useState<NotificationDigest>("off");
-  const [chatSessions, setChatSessions] = useState<UserChatSession[]>([]);
-  const [chatSessionsError, setChatSessionsError] = useState<string | null>(null);
-  const [selectedChatSessionId, setSelectedChatSessionId] = useState<string | null>(null);
-  const [chatSessionDetail, setChatSessionDetail] = useState<UserChatSessionDetailResponse | null>(null);
-  const [chatSessionDetailLoading, setChatSessionDetailLoading] = useState(false);
-  const [chatSessionDetailError, setChatSessionDetailError] = useState<string | null>(null);
-  const [loadingAccount, setLoadingAccount] = useState(false);
-  const [savingAccount, setSavingAccount] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const accessTokenRef = useRef(accessToken);
-  const chatSessionDetailRequestRef = useRef<{
-    requestId: number;
-    sessionId: string | null;
-    token: string | null;
-  }>({ requestId: 0, sessionId: null, token: null });
+  // Auth state starts empty so the first client render matches server HTML;
+  // the real sessionStorage value is synced in an effect (see WatchlistToggle).
+  const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [authReady, setAuthReady] = useState(false);
   const configured = isCognitoConfigured();
-  const showingAccountLoading = Boolean(accessToken) && (loadingAccount || (!me && !error));
 
-  function resetChatSessionDetailState() {
-    setSelectedChatSessionId(null);
-    setChatSessionDetail(null);
-    setChatSessionDetailError(null);
-    setChatSessionDetailLoading(false);
-  }
+  const chatHistory = useChatSessionHistory();
+  const profile = useAccountProfile(accessToken, {
+    onLoadStart: chatHistory.prepareForAccountReload,
+    onLoadSuccess: chatHistory.loadChatSessions,
+    onLoadFailure: chatHistory.clearChatSessions,
+  });
+  const { syncAccessToken } = chatHistory;
 
   useEffect(() => {
-    return subscribeAuthSession(() => {
+    const sync = () => {
       const nextToken = readApiAuthToken();
-      const previousToken = accessTokenRef.current;
-      accessTokenRef.current = nextToken;
-      if (previousToken !== nextToken) {
-        chatSessionDetailRequestRef.current = {
-          requestId: chatSessionDetailRequestRef.current.requestId + 1,
-          sessionId: null,
-          token: nextToken,
-        };
-        resetChatSessionDetailState();
-      }
+      syncAccessToken(nextToken);
       setAccessToken(nextToken);
-    });
-  }, []);
-
-  useEffect(() => {
-    accessTokenRef.current = accessToken;
-    chatSessionDetailRequestRef.current = {
-      requestId: chatSessionDetailRequestRef.current.requestId + 1,
-      sessionId: null,
-      token: accessToken,
-    };
-  }, [accessToken]);
-
-  useEffect(() => {
-    if (!accessToken) {
-      return;
-    }
-
-    const token = accessToken;
-    let cancelled = false;
-    async function load() {
-      setError(null);
-      setMessage(null);
-      setChatSessionsError(null);
-      resetChatSessionDetailState();
-      setLoadingAccount(true);
-      try {
-        const [profile, preferences] = await Promise.all([
-          getMe(token),
-          getUserPreferences(token),
-        ]);
-        if (cancelled) return;
-        const preferenceValues = preferences.preferences;
-        const notificationPreferences = readNotificationPreferences(preferenceValues.notifications);
-        setMe(profile);
-        setNickname(profile.nickname ?? "");
-        setUserPreferences(preferenceValues);
-        const initialRiskProfile = readRiskProfile(preferenceValues.risk_profile);
-        setRiskProfile(initialRiskProfile);
-        setRiskProfileCookie(initialRiskProfile);
-        setNotificationEmailEnabled(notificationPreferences.emailEnabled);
-        setNotificationDigest(notificationPreferences.digest);
-      } catch {
-        if (!cancelled) {
-          setMe(null);
-          setChatSessions([]);
-          resetChatSessionDetailState();
-          setError("로그인 상태를 확인하지 못했습니다. 다시 로그인해 주세요.");
-        }
-        return;
-      } finally {
-        if (!cancelled) setLoadingAccount(false);
-      }
-
-      try {
-        const sessions = await getUserChatSessions(token);
-        if (cancelled) return;
-        setChatSessions(sessions.items);
-      } catch {
-        if (!cancelled) {
-          setChatSessions([]);
-          resetChatSessionDetailState();
-          setChatSessionsError("최근 대화 이력을 불러오지 못했습니다.");
-        }
-      }
-    }
-
-    void load();
-    return () => {
-      cancelled = true;
-    };
-  }, [accessToken]);
-
-  async function loadChatSessionDetail(sessionId: string, token = accessToken) {
-    if (!token) return;
-    const requestId = chatSessionDetailRequestRef.current.requestId + 1;
-    chatSessionDetailRequestRef.current = { requestId, sessionId, token };
-    const isCurrentRequest = () => {
-      const currentRequest = chatSessionDetailRequestRef.current;
-      return (
-        currentRequest.requestId === requestId &&
-        currentRequest.sessionId === sessionId &&
-        currentRequest.token === token &&
-        accessTokenRef.current === token
-      );
+      setAuthReady(true);
     };
 
-    setSelectedChatSessionId(sessionId);
-    setChatSessionDetailLoading(true);
-    setChatSessionDetailError(null);
-    try {
-      const detail = await getUserChatSessionDetail(token, sessionId);
-      if (!isCurrentRequest()) return;
-      setChatSessionDetail(detail);
-    } catch {
-      if (!isCurrentRequest()) return;
-      setChatSessionDetail(null);
-      setChatSessionDetailError("대화 내용을 불러오지 못했습니다.");
-    } finally {
-      if (isCurrentRequest()) {
-        setChatSessionDetailLoading(false);
-      }
-    }
-  }
+    sync();
+    return subscribeAuthSession(sync);
+  }, [syncAccessToken]);
 
-  async function saveProfile() {
-    if (!accessToken || !me || savingAccount) return;
-    setError(null);
-    setMessage(null);
-    setSavingAccount(true);
-    try {
-      const updated = await patchMe(accessToken, { nickname: nickname.trim() || null });
-      setMe(updated);
-      try {
-        const preferences = buildUserPreferences(userPreferences, {
-          riskProfile,
-          notificationEmailEnabled,
-          notificationDigest,
-        });
-        const savedPreferences = await putUserPreferences(accessToken, preferences);
-        setUserPreferences(savedPreferences.preferences);
-        setRiskProfileCookie(riskProfile);
-        setMessage("계정 설정을 저장했습니다.");
-      } catch {
-        setError("닉네임은 저장됐지만 선호 설정 저장에 실패했습니다.");
-      }
-    } catch {
-      setError("계정 설정 저장에 실패했습니다.");
-    } finally {
-      setSavingAccount(false);
-    }
-  }
+  const { me, loadingAccount, savingAccount, message, error } = profile;
+  const {
+    chatSessions,
+    chatSessionsError,
+    selectedChatSessionId,
+    chatSessionDetail,
+    chatSessionDetailLoading,
+    chatSessionDetailError,
+    loadChatSessionDetail,
+  } = chatHistory;
+  const showingAccountLoading = Boolean(accessToken) && (loadingAccount || (!me && !error));
 
   return (
     <div className="mx-auto max-w-4xl px-5 py-8">
@@ -238,7 +86,11 @@ export function AccountClient() {
           </div>
         ) : null}
 
-        {!accessToken ? (
+        {!authReady ? (
+          <div className="mt-6 border-y border-line bg-field px-4 py-6 text-sm text-muted" role="status">
+            로그인 상태를 확인하는 중입니다.
+          </div>
+        ) : !accessToken ? (
           <div className="mt-6 flex flex-wrap gap-3">
             <button
               type="button"
@@ -275,8 +127,8 @@ export function AccountClient() {
               <label className="block">
                 <span className="text-xs font-medium text-muted">닉네임</span>
                 <input
-                  value={nickname}
-                  onChange={(event) => setNickname(event.target.value)}
+                  value={profile.nickname}
+                  onChange={(event) => profile.setNickname(event.target.value)}
                   className="mt-1 w-full rounded-md border border-line bg-field px-3 py-2 text-sm text-ink outline-none transition focus:bg-white focus:shadow-focus"
                   maxLength={80}
                 />
@@ -285,8 +137,8 @@ export function AccountClient() {
               <label className="block">
                 <span className="text-xs font-medium text-muted">리스크 성향</span>
                 <select
-                  value={riskProfile}
-                  onChange={(event) => setRiskProfile(readRiskProfile(event.target.value))}
+                  value={profile.riskProfile}
+                  onChange={(event) => profile.setRiskProfile(readRiskProfile(event.target.value))}
                   className="mt-1 w-full rounded-md border border-line bg-field px-3 py-2 text-sm text-ink outline-none transition focus:bg-white focus:shadow-focus"
                 >
                   <option value="conservative">{riskProfileLabel("conservative")}</option>
@@ -300,8 +152,8 @@ export function AccountClient() {
                 <label className="mt-3 flex items-start gap-3 text-sm text-ink">
                   <input
                     type="checkbox"
-                    checked={notificationEmailEnabled}
-                    onChange={(event) => setNotificationEmailEnabled(event.target.checked)}
+                    checked={profile.notificationEmailEnabled}
+                    onChange={(event) => profile.setNotificationEmailEnabled(event.target.checked)}
                     className="mt-1 h-4 w-4 rounded border-line text-accent focus:ring-accent"
                   />
                   <span>
@@ -315,8 +167,10 @@ export function AccountClient() {
                 <label className="mt-4 block">
                   <span className="text-xs font-medium text-muted">관심종목 요약</span>
                   <select
-                    value={notificationDigest}
-                    onChange={(event) => setNotificationDigest(readNotificationDigest(event.target.value))}
+                    value={profile.notificationDigest}
+                    onChange={(event) =>
+                      profile.setNotificationDigest(readNotificationDigest(event.target.value))
+                    }
                     className="mt-1 w-full rounded-md border border-line bg-field px-3 py-2 text-sm text-ink outline-none transition focus:bg-white focus:shadow-focus"
                   >
                     <option value="off">받지 않음</option>
@@ -328,7 +182,7 @@ export function AccountClient() {
 
               <button
                 type="button"
-                onClick={() => void saveProfile()}
+                onClick={() => void profile.saveProfile()}
                 disabled={savingAccount}
                 className="rounded-md bg-ink px-4 py-2 text-sm font-semibold text-white transition hover:bg-accent focus:outline-none focus:shadow-focus disabled:cursor-not-allowed disabled:opacity-60"
               >
@@ -443,52 +297,4 @@ function chatResumeHref(session: UserChatSession) {
     ticker: session.ticker ?? "",
   });
   return `/chat?${params.toString()}`;
-}
-
-function readRiskProfile(value: unknown): RiskProfile {
-  if (value === "conservative" || value === "balanced" || value === "aggressive") {
-    return value;
-  }
-  return "balanced";
-}
-
-function readNotificationPreferences(value: unknown) {
-  if (!value || typeof value !== "object") {
-    return { emailEnabled: false, digest: "off" as NotificationDigest };
-  }
-  const preferences = value as Record<string, unknown>;
-  return {
-    emailEnabled: preferences.email_enabled === true,
-    digest: readNotificationDigest(preferences.watchlist_digest),
-  };
-}
-
-function readNotificationDigest(value: unknown): NotificationDigest {
-  if (value === "daily" || value === "weekly") {
-    return value;
-  }
-  return "off";
-}
-
-function buildUserPreferences(
-  current: Record<string, unknown>,
-  values: {
-    riskProfile: RiskProfile;
-    notificationEmailEnabled: boolean;
-    notificationDigest: NotificationDigest;
-  },
-) {
-  const currentNotifications =
-    current.notifications && typeof current.notifications === "object"
-      ? (current.notifications as Record<string, unknown>)
-      : {};
-  return {
-    ...current,
-    risk_profile: values.riskProfile,
-    notifications: {
-      ...currentNotifications,
-      email_enabled: values.notificationEmailEnabled,
-      watchlist_digest: values.notificationDigest,
-    },
-  };
 }
