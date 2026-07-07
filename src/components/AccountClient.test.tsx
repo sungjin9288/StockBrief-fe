@@ -1,4 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -78,6 +79,14 @@ describe("AccountClient", () => {
     cleanup();
     window.sessionStorage.clear();
     vi.clearAllMocks();
+  });
+
+  it("renders the logged-out placeholder on the initial render without reading the auth session", () => {
+    const markup = renderToStaticMarkup(<AccountClient />);
+
+    expect(mockedReadApiAuthToken).not.toHaveBeenCalled();
+    expect(markup).toContain("로그인 상태를 확인하는 중입니다.");
+    expect(markup).not.toContain("로그아웃");
   });
 
   it("keeps account fields hidden while authenticated account data is loading", async () => {

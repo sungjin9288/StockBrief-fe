@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { postAuthenticatedChat, postChat } from "@/lib/api";
@@ -34,6 +35,18 @@ describe("ChatExplanationPanel", () => {
     cleanup();
     vi.clearAllMocks();
     vi.restoreAllMocks();
+  });
+
+  it("does not read the auth session during the initial render", () => {
+    mockedReadApiAuthToken.mockReturnValue("id-token");
+
+    const markup = renderToStaticMarkup(
+      <ChatExplanationPanel ticker="005930" initialSessionId="chat-session-existing" />,
+    );
+
+    expect(mockedReadApiAuthToken).not.toHaveBeenCalled();
+    expect(markup).not.toContain("이전 대화에 이어서 질문합니다.");
+    expect(markup).not.toContain("로그인된 세션에서만 이전 대화를 이어갈 수 있습니다.");
   });
 
   it("renders a public explanation with evidence and safety disclaimer", async () => {

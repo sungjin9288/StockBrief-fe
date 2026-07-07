@@ -1,12 +1,22 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { clearAuthSession } from "@/lib/cognito-auth";
+
 import {
+  ApiError,
+  getMe,
   getRecommendationCandidate,
   getRecommendationCandidates,
   postAuthenticatedChat,
   postChat,
   searchStocks,
 } from "./api";
+
+vi.mock("@/lib/cognito-auth", () => ({
+  clearAuthSession: vi.fn(),
+}));
+
+const mockedClearAuthSession = vi.mocked(clearAuthSession);
 
 describe("candidate API adapters", () => {
   afterEach(() => {
@@ -290,6 +300,46 @@ describe("chat API adapters", () => {
   });
 });
 
+describe("401 session handling", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  it("clears the auth session and asks the user to log in again when an authorized request gets 401", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(statusResponse(401)));
+
+    const failure = await getMe("expired-token").catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(ApiError);
+    expect((failure as ApiError).status).toBe(401);
+    expect((failure as ApiError).message).toBe("로그인이 만료되었습니다. 다시 로그인해 주세요.");
+    expect(mockedClearAuthSession).toHaveBeenCalledOnce();
+  });
+
+  it("keeps non-401 authorized failures as generic API errors without clearing the session", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(statusResponse(500)));
+
+    const failure = await getMe("id-token").catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(ApiError);
+    expect((failure as ApiError).status).toBe(500);
+    expect(mockedClearAuthSession).not.toHaveBeenCalled();
+  });
+
+  it("does not clear the auth session when a public request gets 401", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(statusResponse(401)));
+
+    const failure = await postChat({ ticker: "005930", message: "왜 추천됐나요?" }).catch(
+      (error: unknown) => error,
+    );
+
+    expect(failure).toBeInstanceOf(ApiError);
+    expect((failure as ApiError).status).toBe(401);
+    expect(mockedClearAuthSession).not.toHaveBeenCalled();
+  });
+});
+
 describe("stock search API adapter", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -348,6 +398,14 @@ describe("stock search API adapter", () => {
     });
   });
 });
+
+function statusResponse(status: number): Response {
+  return {
+    ok: false,
+    status,
+    json: async () => ({}),
+  } as Response;
+}
 
 function jsonResponse(body: unknown): Response {
   return {

@@ -54,14 +54,22 @@ export function ChatExplanationPanel({ ticker, initialSessionId = null }: ChatEx
   const [response, setResponse] = useState<ChatResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [accessToken, setAccessToken] = useState<string | null>(() => readApiAuthToken());
+  // Auth state starts empty so the first client render matches server HTML;
+  // the real sessionStorage value is synced in an effect (see WatchlistToggle).
+  const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [authReady, setAuthReady] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(initialSessionId);
   const resumeSessionId = accessToken ? sessionId : null;
   const trimmedMessage = message.trim();
   const canRequestExplanation = trimmedMessage.length > 0 && !loading;
 
   useEffect(() => {
-    const sync = () => setAccessToken(readApiAuthToken());
+    const sync = () => {
+      setAccessToken(readApiAuthToken());
+      setAuthReady(true);
+    };
+
+    sync();
     return subscribeAuthSession(sync);
   }, []);
 
@@ -103,7 +111,7 @@ export function ChatExplanationPanel({ ticker, initialSessionId = null }: ChatEx
           <p className="mt-1 text-sm leading-6 text-muted">
             저장된 점수, 추천 이유, 근거, 리스크만 사용해 설명합니다.
           </p>
-          {resumeSessionId ? (
+          {!authReady ? null : resumeSessionId ? (
             <p className="mt-1 text-xs text-muted">이전 대화에 이어서 질문합니다.</p>
           ) : sessionId ? (
             <p className="mt-1 text-xs text-caution">로그인된 세션에서만 이전 대화를 이어갈 수 있습니다.</p>

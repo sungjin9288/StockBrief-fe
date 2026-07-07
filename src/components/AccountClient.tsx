@@ -32,7 +32,10 @@ import type {
 type NotificationDigest = "off" | "daily" | "weekly";
 
 export function AccountClient() {
-  const [accessToken, setAccessToken] = useState<string | null>(() => readApiAuthToken());
+  // Auth state starts empty so the first client render matches server HTML;
+  // the real sessionStorage value is synced in an effect (see WatchlistToggle).
+  const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [authReady, setAuthReady] = useState(false);
   const [me, setMe] = useState<MeResponse | null>(null);
   const [nickname, setNickname] = useState("");
   const [riskProfile, setRiskProfile] = useState<RiskProfile>("balanced");
@@ -66,7 +69,7 @@ export function AccountClient() {
   }
 
   useEffect(() => {
-    return subscribeAuthSession(() => {
+    const sync = () => {
       const nextToken = readApiAuthToken();
       const previousToken = accessTokenRef.current;
       accessTokenRef.current = nextToken;
@@ -79,7 +82,11 @@ export function AccountClient() {
         resetChatSessionDetailState();
       }
       setAccessToken(nextToken);
-    });
+      setAuthReady(true);
+    };
+
+    sync();
+    return subscribeAuthSession(sync);
   }, []);
 
   useEffect(() => {
@@ -238,7 +245,11 @@ export function AccountClient() {
           </div>
         ) : null}
 
-        {!accessToken ? (
+        {!authReady ? (
+          <div className="mt-6 border-y border-line bg-field px-4 py-6 text-sm text-muted" role="status">
+            로그인 상태를 확인하는 중입니다.
+          </div>
+        ) : !accessToken ? (
           <div className="mt-6 flex flex-wrap gap-3">
             <button
               type="button"
