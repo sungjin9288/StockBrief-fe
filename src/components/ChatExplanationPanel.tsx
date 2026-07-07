@@ -61,7 +61,9 @@ export function ChatExplanationPanel({ ticker, initialSessionId = null }: ChatEx
   const [sessionId, setSessionId] = useState<string | null>(initialSessionId);
   const resumeSessionId = accessToken ? sessionId : null;
   const trimmedMessage = message.trim();
-  const canRequestExplanation = trimmedMessage.length > 0 && !loading;
+  // Gate on authReady so a logged-in user's very fast click before the auth
+  // effect resolves cannot fall through to an anonymous postChat request.
+  const canRequestExplanation = trimmedMessage.length > 0 && !loading && authReady;
 
   useEffect(() => {
     const sync = () => {
@@ -74,7 +76,7 @@ export function ChatExplanationPanel({ ticker, initialSessionId = null }: ChatEx
   }, []);
 
   async function requestExplanation() {
-    if (!trimmedMessage) return;
+    if (!trimmedMessage || !authReady) return;
     setLoading(true);
     setError(null);
     try {

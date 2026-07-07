@@ -49,6 +49,17 @@ describe("ChatExplanationPanel", () => {
     expect(markup).not.toContain("로그인된 세션에서만 이전 대화를 이어갈 수 있습니다.");
   });
 
+  it("disables the request button until the auth state is ready", () => {
+    mockedReadApiAuthToken.mockReturnValue("id-token");
+
+    const markup = renderToStaticMarkup(<ChatExplanationPanel ticker="005930" />);
+
+    // Initial render (authReady=false) must keep the button disabled so a
+    // logged-in user's very fast click cannot fall through to a public
+    // postChat request before the auth effect resolves.
+    expect(markup).toMatch(/<button[^>]*\sdisabled[^>]*>/);
+  });
+
   it("renders a public explanation with evidence and safety disclaimer", async () => {
     render(<ChatExplanationPanel ticker="005930" />);
 
